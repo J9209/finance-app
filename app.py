@@ -63,26 +63,13 @@ def init_db():
         )
     ''')
     
+    # Clear any existing sample data so the app starts empty.
+    cursor.execute("DELETE FROM transactions")
+    cursor.execute("DELETE FROM recurring_bills")
+    cursor.execute("DELETE FROM accounts")
+    cursor.execute("DELETE FROM savings_goals")
+    cursor.execute("DELETE FROM sqlite_sequence WHERE name IN ('transactions', 'recurring_bills', 'accounts', 'savings_goals')")
     conn.commit()
-    
-    # Seed default accounts or goals if empty
-    cursor.execute("SELECT COUNT(*) FROM accounts")
-    if cursor.fetchone()[0] == 0:
-        default_accounts = [("現金", 5000), ("台新銀行", 30000), ("悠遊卡", 500)]
-        cursor.executemany("INSERT INTO accounts (account_name, balance) VALUES (?, ?)", default_accounts)
-        conn.commit()
-    
-    cursor.execute("SELECT COUNT(*) FROM savings_goals")
-    if cursor.fetchone()[0] == 0:
-        default_goals = [("日本旅遊", 40000, 10000, "2026-12-31"), ("緊急預備金", 100000, 50000, "2027-06-30")]
-        cursor.executemany("INSERT INTO savings_goals (goal_name, target_amount, current_amount, target_date) VALUES (?, ?, ?, ?)", default_goals)
-        conn.commit()
-        
-    cursor.execute("SELECT COUNT(*) FROM recurring_bills")
-    if cursor.fetchone()[0] == 0:
-        default_bills = [(5, "expense", "居住", 12000, "台新銀行", "房租", ""), (10, "expense", "娛樂", 390, "台新銀行", "Netflix 訂閱", "")]
-        cursor.executemany("INSERT INTO recurring_bills (day_of_month, type, category, amount, account, note, last_processed_month) VALUES (?, ?, ?, ?, ?, ?, ?)", default_bills)
-        conn.commit()
 
     conn.close()
 
@@ -197,7 +184,7 @@ def parse_chat_input(text):
     df_acc = pd.read_sql("SELECT account_name FROM accounts", conn)
     conn.close()
     
-    account = "現金"
+    account = "未指定"
     for acc in df_acc['account_name']:
         if acc in cleaned:
             account = acc
@@ -384,7 +371,7 @@ elif app_mode == "📊 財務儀表板":
         total_income = df_month[df_month['type'] == 'income']['amount'].sum()
         net_worth = df_acc['balance'].sum()
         
-        monthly_budget = st.sidebar.number_input("設定本月總預算 (元)", value=15000, step=1000)
+        monthly_budget = st.sidebar.number_input("設定本月總預算 (元)", value=0, step=1000)
         
         col1, col2, col3, col4 = st.columns(4)
         col1.metric("本月總支出", f"${total_expense:,.0f}")
@@ -491,7 +478,7 @@ elif app_mode == "🎯 存錢目標管理":
         st.markdown("### ➕ 新增存錢目標")
         with st.form("new_goal_form"):
             new_name = st.text_input("目標名稱")
-            new_target = st.number_input("目標金額", value=30000, step=5000)
+            new_target = st.number_input("目標金額", value=0, step=5000)
             new_initial = st.number_input("初始已存金額", value=0, step=1000)
             new_date = st.date_input("預計達標日期", value=date(2026, 12, 31))
             
@@ -576,7 +563,7 @@ elif app_mode == "⚙️ 固定收支與帳戶管理":
             b_day = st.number_input("每月扣款日 (1-31)", min_value=1, max_value=31, value=1)
             b_type = st.selectbox("類型", ["expense", "income"], format_func=lambda x: "支出" if x=="expense" else "收入")
             b_cat = st.selectbox("分類", ["伙食", "交通", "娛樂", "購物", "居住", "醫療", "薪水", "其他"])
-            b_amt = st.number_input("金額", value=500, step=100)
+            b_amt = st.number_input("金額", value=0, step=100)
             b_acc = st.selectbox("扣款/入帳帳戶", df_acc_list['account_name'])
             b_note = st.text_input("名稱備註 (如: 房租、Spotify)")
             
@@ -602,7 +589,7 @@ elif app_mode == "⚙️ 固定收支與帳戶管理":
         with st.form("add_account_form"):
             st.markdown("#### 新增帳戶")
             acc_name = st.text_input("帳戶名稱 (例如: 富邦銀行)")
-            acc_bal = st.number_input("初始餘額", value=10000, step=1000)
+            acc_bal = st.number_input("初始餘額", value=0, step=1000)
             
             submitted_acc = st.form_submit_button("新增帳戶")
             if submitted_acc and acc_name:
