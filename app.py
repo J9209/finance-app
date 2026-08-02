@@ -18,6 +18,21 @@ DB_FILE = "finance_app.db"
 CATEGORIES = ["伙食", "交通", "娛樂", "購物", "居住", "醫療", "薪水", "其他"]
 DEFAULT_ACCOUNT = "未指定"
 
+# 管理員後台密碼：優先順序為
+#   1) .streamlit/secrets.toml 裡的 ADMIN_PASSWORD（Streamlit 官方建議做法，本機與雲端皆適用）
+#   2) 系統環境變數 ADMIN_PASSWORD
+#   3) 都沒設定時的預設值（僅供第一次測試用，正式使用請務必覆寫）
+def _load_admin_password():
+    try:
+        if "ADMIN_PASSWORD" in st.secrets:
+            return st.secrets["ADMIN_PASSWORD"]
+    except Exception:
+        pass
+    return os.environ.get("ADMIN_PASSWORD", "admin888")
+
+
+ADMIN_PASSWORD = _load_admin_password()
+
 CATEGORY_KEYWORD_MAP = {
     "飯": "伙食", "麵": "伙食", "午餐": "伙食", "晚餐": "伙食", "早餐": "伙食",
     "咖啡": "伙食", "飲料": "伙食", "餐廳": "伙食",
@@ -691,7 +706,7 @@ st.sidebar.markdown("### 🧭 功能導覽")
 app_mode = st.sidebar.radio(
     "選擇模式",
     ["🤖 聊天記帳助手", "📋 交易紀錄總管", "📅 日曆檢視", "📊 財務儀表板",
-     "🎯 存錢目標管理", "⚙️ 固定收支與帳戶管理"],
+     "🎯 存錢目標管理", "⚙️ 固定收支與帳戶管理", "🔐 管理員後台"],
     label_visibility="collapsed",
 )
 
@@ -1264,3 +1279,79 @@ elif app_mode == "⚙️ 固定收支與帳戶管理":
                         st.rerun()
                     else:
                         st.error("無法刪除：該帳戶仍有交易或固定收支紀錄。請先移除相關紀錄後再試。")
+
+
+# ===========================================================
+# 頁面：🔐 管理員後台（新增功能）
+# ===========================================================
+elif app_mode == "🔐 管理員後台":
+    st.subheader("🔐 管理員後台")
+    st.caption("此頁面用於系統管理者查看整體註冊與使用狀況，與一般使用者帳號無關，需輸入獨立的管理員密碼。")
+
+    st.session_state.setdefault("admin_authed", False)
+
+    if not st.session_state.admin_authed:
+        with st.form("admin_login_form"):
+            admin_pw_input = st.text_input("請輸入管理員密碼", type="password")
+            admin_submit = st.form_submit_button("進入後台", width="stretch")
+        if admin_submit:
+            if admin_pw_input == ADMIN_PASSWORD:
+                st.session_state.admin_authed = True
+                st.rerun()
+            else:
+                st.error("管理員密碼錯誤。")
+    else:
+        if st.button("🚪 登出管理員後台"):
+            st.session_state.admin_authed = False
+            st.rerun()
+
+        df_users = read_df(
+            "SELECT username, display_name, created_at FROM users ORDER BY created_at DESC"
+        )
+
+        st.divider()
+        col1, col2, col3 = st.columns(3)
+        col1.metric("👥 總註冊人數", len(df_users))
+
+        if not df_users.empty:
+            df_users["created_at_dt"] = pd.to_datetime(df_users["created_at"], errors="coerce")
+            today = datetime.now().date()
+            week_ago = today - timedelta(days=7)
+            current_month_str = datetime.now().strftime("%Y-%m")
+            new_week = int((df_users["created_at_dt"].dt.date >= week_ago).sum())
+            new_month = int((df_users["created_at_dt"].dt.strftime("%Y-%m") == current_month_str).sum())
+        else:
+            new_week = new_month = 0
+        col2.metric("📅 本週新註冊", new_week)
+        col3.metric("🗓️ 本月新註冊", new_month)
+
+        if df_users.empty:
+            st.info("目前尚無任何註冊使用者。")
+        else:
+            st.divider()
+            st.markdown("### 📈 每日新增註冊趨勢")
+            trend = df_users.dropna(subset=["created_at_dt"]).copy()
+            if not trend.empty:
+                trend["date"] = trend["created_at_dt"].dt.date
+                trend_counts = trend.groupby("date").size().reset_index(name="新增人數")
+                trend_counts["累積人數"] = trend_counts["新增人數"].cumsum()
+                col_a, col_b = st.columns(2)
+                with col_a:
+                    fig_new = px.bar(trend_counts, x="date", y="新增人數", title="每日新增註冊人數")
+                    st.plotly_chart(fig_new, width="stretch")
+                with col_b:
+                    fig_cum = px.line(trend_counts, x="date", y="累積人數", markers=True, title="累積註冊人數")
+                    st.plotly_chart(fig_cum, width="stretch")
+
+            st.divider()
+            st.markdown("### 👤 使用者清單與活躍度")
+            activity_df = read_df('''
+                SELECT u.username AS 帳號, u.display_name AS 名稱, u.created_at AS 註冊時間,
+                       (SELECT COUNT(*) FROM transactions t WHERE t.user = u.username) AS 交易筆數,
+                       (SELECT COUNT(*) FROM accounts a WHERE a.user = u.username) AS 帳戶數,
+                       (SELECT COALESCE(SUM(a.balance), 0) FROM accounts a WHERE a.user = u.username) AS 目前總資產
+                FROM users u
+                ORDER BY u.created_at DESC
+            ''')
+            render_sortable_table(activity_df, key_prefix="admin_users", width="stretch")
+            csv_download_button(activity_df, "使用者清單.csv", label="📥 匯出使用者清單 CSV")
