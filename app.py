@@ -97,6 +97,21 @@ def ensure_account_exists(conn, account, user):
         )
 
 
+def get_budget(user, month):
+    """取得指定使用者、指定月份已儲存的預算金額，若無則回傳 0。"""
+    row = read_df("SELECT amount FROM budgets WHERE user = ? AND month = ?", (user, month))
+    return float(row.iloc[0]["amount"]) if not row.empty else 0.0
+
+
+def save_budget(user, month, amount):
+    with get_conn() as conn:
+        conn.execute(
+            "INSERT INTO budgets (user, month, amount) VALUES (?, ?, ?) "
+            "ON CONFLICT(user, month) DO UPDATE SET amount = excluded.amount",
+            (user, month, amount),
+        )
+
+
 def next_local_id(conn, user):
     row = conn.execute(
         "SELECT COALESCE(MAX(local_id), 0) + 1 FROM transactions WHERE user = ?", (user,)
@@ -198,6 +213,11 @@ def init_db():
         ''')
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS app_meta (key TEXT PRIMARY KEY, value TEXT)
+        ''')
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS budgets (
+                user TEXT, month TEXT, amount REAL, PRIMARY KEY (user, month)
+            )
         ''')
 
         # 自動為舊資料表補上 user 欄位
@@ -588,6 +608,11 @@ if auth_mode == "註冊":
         reg_display = st.text_input("名稱（顯示用）")
         reg_pw = st.text_input("密碼", type="password")
         reg_pw2 = st.text_input("再次輸入密碼", type="password")
+        reg_initial = st.number_input(
+            "起始資金 (元)", value=0, step=1000, min_value=0,
+            help="人的本錢通常不會從 0 開始：這裡可以先輸入你目前手上的現金/存款總額，"
+                 "系統會自動幫你建立一個「現金」帳戶並帶入這筆餘額。之後仍可在「⚙️ 固定收支與帳戶管理」新增更多帳戶。",
+        )
         submit_register = st.form_submit_button("註冊", width="stretch")
 
     if submit_register:
@@ -612,6 +637,11 @@ if auth_mode == "註冊":
                         "VALUES (?, ?, ?, ?)",
                         (account, pw_hash, display, datetime.now().strftime("%Y-%m-%d %H:%M:%S")),
                     )
+                    if reg_initial and reg_initial > 0:
+                        conn.execute(
+                            "INSERT INTO accounts (account_name, balance, user) VALUES (?, ?, ?)",
+                            ("現金", reg_initial, account),
+                        )
             if account_taken:
                 st.sidebar.error("帳號已存在，請換一個。")
             else:
@@ -621,9 +651,14 @@ if auth_mode == "註冊":
                 st.rerun()
 
 elif auth_mode == "登入":
-    login_account = st.sidebar.text_input("帳號（登入）")
-    login_pw = st.sidebar.text_input("密碼", type="password")
-    if st.sidebar.button("登入", width="stretch"):
+    # 改用 st.form：帳號與密碼會在按下「登入」時一次性提交，
+    # 避免瀏覽器自動填入密碼或按下 Enter 造成的時序問題導致「偶發密碼錯誤」。
+    with st.sidebar.form("login_form"):
+        login_account = st.text_input("帳號（登入）")
+        login_pw = st.text_input("密碼", type="password")
+        submit_login = st.form_submit_button("登入", width="stretch")
+
+    if submit_login:
         account = login_account.strip()
         row = read_df(
             "SELECT password_hash, display_name FROM users WHERE username = ?", (account,)
@@ -939,7 +974,17 @@ elif app_mode == "📊 財務儀表板":
         total_income = df_month[df_month["type"] == "income"]["amount"].sum()
         net_worth = df_acc["balance"].sum()
 
-        monthly_budget = st.sidebar.number_input("設定本月總預算 (元)", value=0, step=1000)
+        # 新增功能：預算可手動輸入並「儲存」到資料庫，不會因重新整理或換頁就歸零
+        saved_budget = get_budget(CURRENT_USER, selected_month)
+        with st.sidebar:
+            st.markdown(f"#### 💰 {selected_month} 預算設定")
+            monthly_budget = st.number_input(
+                "手動輸入本月總預算 (元)", value=int(saved_budget), step=1000, min_value=0,
+                key=f"budget_input_{selected_month}",
+            )
+            if st.button("💾 儲存本月預算", width="stretch", key=f"save_budget_{selected_month}"):
+                save_budget(CURRENT_USER, selected_month, monthly_budget)
+                st.success("已儲存本月預算！")
 
         col1, col2, col3, col4 = st.columns(4)
         col1.metric(f"{selected_month} 總支出", f"${total_expense:,.0f}")
