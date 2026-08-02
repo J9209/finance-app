@@ -523,38 +523,44 @@ html, body, [class*="css"]  { font-family: 'Noto Sans TC', sans-serif; }
 .main .block-container { padding-top: 1.6rem; padding-bottom: 3rem; max-width: 1200px; }
 
 .hero-title {
-    background: linear-gradient(120deg, #6366f1 0%, #06b6d4 55%, #10b981 100%);
+    background: linear-gradient(120deg, #818cf8 0%, #22d3ee 55%, #34d399 100%);
     -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;
     font-size: 2.3rem; font-weight: 900; margin-bottom: 0; line-height: 1.3;
 }
-.hero-sub { color: #6b7280; font-size: 0.95rem; margin-top: -4px; margin-bottom: 1.1rem; }
+.hero-sub { color: var(--text-color); opacity: 0.65; font-size: 0.95rem; margin-top: -4px; margin-bottom: 1.1rem; }
 
 div[data-testid="stMetric"] {
-    background: linear-gradient(145deg, #ffffff, #f4f6fb);
-    border: 1px solid #e8eaf0; border-radius: 16px; padding: 1rem 1.1rem;
-    box-shadow: 0 2px 10px rgba(15, 23, 42, 0.05);
+    background: var(--secondary-background-color);
+    border: 1px solid rgba(128, 128, 128, 0.25); border-radius: 16px; padding: 1rem 1.1rem;
+    box-shadow: 0 2px 10px rgba(15, 23, 42, 0.08);
 }
+div[data-testid="stMetric"] label, div[data-testid="stMetric"] div { color: var(--text-color); }
 
 .stButton>button, .stFormSubmitButton>button, .stDownloadButton>button {
     border-radius: 10px; font-weight: 600; transition: all .15s ease;
 }
 .stButton>button:hover, .stFormSubmitButton>button:hover, .stDownloadButton>button:hover {
-    transform: translateY(-1px); box-shadow: 0 4px 14px rgba(99, 102, 241, 0.25);
+    transform: translateY(-1px); box-shadow: 0 4px 14px rgba(99, 102, 241, 0.35);
 }
 
-section[data-testid="stSidebar"] { background: linear-gradient(180deg, #f8fafc 0%, #eef2ff 100%); }
+section[data-testid="stSidebar"] {
+    background: var(--secondary-background-color);
+    border-right: 1px solid rgba(128, 128, 128, 0.2);
+}
+section[data-testid="stSidebar"] * { color: var(--text-color); }
 
 div[data-testid="stDataFrame"] { border-radius: 12px; overflow: hidden; }
 
 .stChatMessage { border-radius: 14px; }
 
-hr { margin: 1.3rem 0; opacity: 0.4; }
+hr { margin: 1.3rem 0; opacity: 0.3; }
 
 .day-cell {
     min-height: 108px; padding: 8px 10px; border-radius: 12px;
-    background: #fafbfe; transition: all .15s ease;
+    background: var(--secondary-background-color); color: var(--text-color);
+    transition: all .15s ease;
 }
-.day-cell:hover { box-shadow: 0 2px 10px rgba(15,23,42,0.08); }
+.day-cell:hover { box-shadow: 0 2px 10px rgba(15,23,42,0.15); }
 </style>
 """
 
@@ -735,7 +741,7 @@ if app_mode == "🤖 聊天記帳助手":
         if recent_df.empty:
             st.info("目前尚無記帳資料。")
         else:
-            st.dataframe(recent_df, width="stretch")
+            render_sortable_table(recent_df, key_prefix="recent_trans", width="stretch")
             st.caption("如需篩選、編輯或刪除交易，請至左側「📋 交易紀錄總管」頁面。")
 
 
@@ -785,7 +791,7 @@ elif app_mode == "📋 交易紀錄總管":
 
             display_df = filtered.copy()
             display_df["date"] = display_df["date"].dt.strftime("%Y-%m-%d")
-            st.dataframe(display_df, width="stretch")
+            render_sortable_table(display_df, key_prefix="all_trans", width="stretch")
             csv_download_button(display_df, "交易紀錄.csv")
 
             st.divider()
@@ -873,7 +879,7 @@ elif app_mode == "📅 日曆檢視":
                             day_value.strftime("%Y-%m-%d"), {"income": 0.0, "expense": 0.0, "count": 0}
                         )
                         is_today = day_value == today
-                        border = "border: 2px solid #6366f1;" if is_today else "border: 1px solid #e5e7eb;"
+                        border = "border: 2px solid #6366f1;" if is_today else "border: 1px solid rgba(128,128,128,0.25);"
                         st.markdown(
                             f"<div class='day-cell' style='{border}'>"
                             f"<strong>{day_value.day}</strong><br/>"
